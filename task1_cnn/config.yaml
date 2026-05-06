@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────
+#  Task 1 — CNN From Scratch  │  config.yaml
+# ─────────────────────────────────────────────
+
+# Reproducibility
+random_seed: 42
+
+# Dataset
+dataset:
+  root: "seeds"
+  num_classes: 150
+  image_size: 128          # resize all images to 128×128
+  val_split: 0.15
+  test_split: 0.15
+
+# Augmentation
+augmentation:
+  rotation_degrees: 30
+  horizontal_flip: true
+  vertical_flip: true
+  brightness: 0.2
+  zoom: 0.10               # random resized crop factor
+
+# Training
+training:
+  epochs: 80
+  early_stopping_patience: 10
+  batch_size: 32
+  loss: "mse"             # regression loss
+
+# Optimizer Exploration
+optimizers:
+  # Adam variants
+  adam_fast:
+    lr: 0.003
+    weight_decay: 0.0
+  adam_standard:
+    lr: 0.001
+    weight_decay: 0.0001
+  adam_stable:
+    lr: 0.0001
+    weight_decay: 0.001
+  
+  # SGD variants
+  sgd_fast:
+    lr: 0.05
+    momentum: 0.9
+  sgd_standard:
+    lr: 0.01
+    momentum: 0.9
+  sgd_stable:
+    lr: 0.001
+    momentum: 0.99
+
+# Model A — Baseline CNN
+model_a:
+  name: "BaselineCNN"
+  filter_progression: [32, 64, 128]
+  use_global_avg_pool: true
+  dropout: 0.0
+  weight_decay: 0.0
+  optimizer: "adam_standard"
+
+# Model B — Deeper / Regularised CNN
+model_b:
+  name: "DeepRegCNN"
+  filter_progression: [32, 64, 128, 256]
+  use_global_avg_pool: true
+  dropout: 0.3
+  weight_decay: 0.0001
+  residual: true
+  optimizer: "adam_standard"
+
+# Logging
+logging:
+  log_dir: "logs_regression"
+  weights_dir: "weights_regression"
+  outputs_dir: "cnn_outputs_reg"

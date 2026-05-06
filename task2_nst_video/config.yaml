@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────
+#  Task 2 — NST + Matting  │  config.yaml
+# ─────────────────────────────────────────────
+
+random_seed: 42
+
+# ── Matting ────────────────────────────────────
+matting:
+  architecture: "MobileNetV2-UNet"
+  pretrained_encoder: true
+  input_size: 256          # resize frames to 256×256
+  target_iou: 0.85
+  loss_weights:
+    l1:   0.7
+    dice: 0.3
+  training:
+    epochs: 30
+    batch_size: 16
+    lr: 0.0001
+    weight_decay: 0.0001
+    early_stopping_patience: 5
+  augmentation:
+    horizontal_flip: true
+    color_jitter: true
+    random_crop: true
+
+# ── Neural Style Transfer ──────────────────────
+nst:
+  backbone: "VGG19"
+  content_layer: "relu4_2"
+  style_layers:
+    - "relu1_1"
+    - "relu2_1"
+    - "relu3_1"
+    - "relu4_1"
+    - "relu5_1"
+  shallow_style_layers: ["relu1_1", "relu2_1"]
+  deep_style_layers:    ["relu4_1", "relu5_1"]
+  alpha: 1.0                # content weight
+  beta: 100000.0            # default style weight
+  beta_alpha_sweep:
+    - 1.0e3
+    - 1.0e5
+    - 1.0e7
+  optimizer: "lbfgs"        # or "adam"
+  n_steps: 500
+  image_size: 512
+  temporal_consistency: true  # init from previous stylized frame
+
+# ── Video Pipeline ────────────────────────────
+video:
+  input:  "input_video.mp4"
+  styles:
+    - "style/starry_night.jpg"
+  nst_image_size: 512
+  nst_steps: 300             # fewer steps per frame for speed
+  matting_size: 256
+  compositing:
+    background_stylized: "outputs/stylized_background.mp4"
+    subject_stylized:    "outputs/stylized_subject.mp4"
+    full_stylized:       "outputs/stylized_full.mp4"
+  branded_poster: "outputs/branded_poster.png"
+
+# ── Outputs ──────────────────────────────────
+outputs:
+  dir: "outputs"
+  grid:              "outputs/grid.png"
+  beta_alpha_ablation: "outputs/beta_alpha_ablation.png"
+  layer_ablation:    "outputs/layer_ablation.png"
+  matting_overlay:   "outputs/matting_overlay.png"
+  feature_maps:      "outputs/feature_maps.png"
