@@ -48,6 +48,34 @@ OUTPUT_DIR = Path("/kaggle/working/")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------------------------------------------------
+# Helpers for Task 1
+# ----------------------------------------------------------------------
+def plot_inference_examples(model, dataset, device, out_path, num_samples=5):
+    """Visualizes model predictions on sample images from the dataset."""
+    model.eval()
+    fig, axes = plt.subplots(1, num_samples, figsize=(num_samples * 3, 4))
+    if num_samples == 1: axes = [axes]
+    
+    for i in range(num_samples):
+        img_tensor, true_val = dataset[i]
+        with torch.no_grad():
+            pred = model(img_tensor.unsqueeze(0).to(device)).item()
+        
+        # Un-normalize for visualization (assuming ImageNet stats used in task1)
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        img_show = (img_tensor * std + mean).clamp(0, 1).permute(1, 2, 0).numpy()
+        
+        axes[i].imshow(img_show)
+        axes[i].set_title(f"True: {true_val.item():.2f}\nPred: {pred:.2f}")
+        axes[i].axis("off")
+    
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+    print(f"Inference examples saved: {out_path}")
+
+# ----------------------------------------------------------------------
 # 1. Task 1 – CNN regression (Seeds)
 # ----------------------------------------------------------------------
 if not args.skip_task1:
@@ -63,6 +91,7 @@ if not args.skip_task1:
 
     # Load configuration
     cfg = load_config("task1_cnn/config.yaml")
+    log_dir = Path(cfg["logging"]["log_dir"])
     if args.epochs is not None:
         cfg["training"]["epochs"] = args.epochs
     elif args.quick:
@@ -93,6 +122,11 @@ if not args.skip_task1:
     res_b = trainer.train(cfg, model_key="model_b", opt_override="adam_standard")
     print(f"Model B test MSE: {res_b['test_mse']:.6f}")
 
+    # Plot Model B training curves
+    from task1_cnn import evaluate as ev_mod
+    ev_mod.plot_training_curves(str(log_dir / "DeepRegCNN_adam_standard" / "training_log.csv"), 
+                                str(OUTPUT_DIR / "DeepRegCNN_curves.png"))
+
     # ---- 1.3 Full evaluation & scatter plot ----
     # Use best model A from the sweep (we'll take the one trained with adam_standard)
     # Reload best model A weights
@@ -107,6 +141,14 @@ if not args.skip_task1:
         scatter_path = OUTPUT_DIR / "scatter_A.png"
         ev_mod.plot_regression_scatter(y_true, y_pred, str(scatter_path))
         print(f"Scatter plot saved: {scatter_path}")
+
+        # Plot Model A curves
+        ev_mod.plot_training_curves(str(log_dir / "BaselineCNN_adam_standard" / "training_log.csv"), 
+                                    str(OUTPUT_DIR / "BaselineCNN_curves.png"))
+
+        # Save inference examples for 5 test images
+        plot_inference_examples(model_a, test_loader.dataset, device, 
+                                str(OUTPUT_DIR / "test_inference_samples.png"), num_samples=5)
 
     # ---- 1.4 Build comparison table ----
     # Collect results from sweep and model B
