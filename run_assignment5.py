@@ -254,9 +254,18 @@ if not args.skip_task2:
     CONTENT_DIR = Path("task2_nst_video/content")
     STYLE_DIR   = Path("task2_nst_video/style")
     
-    # Kaggle dataset paths
-    KAGGLE_AIS_DATA = Path("/kaggle/input/datasets/laurentmih/aisegmentcom-matting-human-datasets/")
-    KAGGLE_VIDEO    = Path("/kaggle/input/datasets/muhammadannasshaikh/input4cv/input.mp4")
+    # Kaggle dataset paths (robust check)
+    possible_ais = [
+        Path("/kaggle/input/aisegmentcom-matting-human-datasets"),
+        Path("/kaggle/input/datasets/laurentmih/aisegmentcom-matting-human-datasets")
+    ]
+    KAGGLE_AIS_DATA = next((p for p in possible_ais if p.exists()), Path("data/aisegment"))
+
+    possible_vid = [
+        Path("/kaggle/input/input4cv/input.mp4"),
+        Path("/kaggle/input/datasets/muhammadannasshaikh/input4cv/input.mp4")
+    ]
+    KAGGLE_VIDEO = next((p for p in possible_vid if p.exists()), Path("task2_nst_video/input_video.mp4"))
 
     # Example images (all styles and available content)
     content_files = list(CONTENT_DIR.glob("*.jpg")) + list(CONTENT_DIR.glob("*.png"))
@@ -271,6 +280,25 @@ if not args.skip_task2:
             content_files = list(CONTENT_DIR.glob("*.jpg")) + list(CONTENT_DIR.glob("*.png"))
 
     style_files = [p for p in STYLE_DIR.glob("*") if p.suffix.lower() in (".jpg",".jpeg",".png")]
+    
+    # If no styles found, download a couple of public domain ones automatically
+    if not style_files:
+        print("\n--- Downloading default style images ---")
+        STYLE_DIR.mkdir(parents=True, exist_ok=True)
+        import urllib.request
+        styles_to_dl = {
+            "starry_night.jpg": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1024px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg",
+            "great_wave.jpg": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/The_Great_Wave_off_Kanagawa.jpg/1024px-The_Great_Wave_off_Kanagawa.jpg",
+            "composition_viii.jpg": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Vassily_Kandinsky%2C_1923_-_Composition_8%2C_huile_sur_toile%2C_140_cm_x_201_cm%2C_Mus%C3%A9e_Guggenheim%2C_New_York.jpg/1024px-Vassily_Kandinsky%2C_1923_-_Composition_8%2C_huile_sur_toile%2C_140_cm_x_201_cm%2C_Mus%C3%A9e_Guggenheim%2C_New_York.jpg"
+        }
+        for name, url in styles_to_dl.items():
+            try:
+                urllib.request.urlretrieve(url, str(STYLE_DIR / name))
+                print(f"Downloaded {name}")
+            except Exception as e:
+                print(f"Failed to download {name}: {e}")
+        style_files = [p for p in STYLE_DIR.glob("*") if p.suffix.lower() in (".jpg",".jpeg",".png")]
+
     if not content_files or not style_files:
         print("WARNING: No content or style images found. Skipping NST parts.")
     else:

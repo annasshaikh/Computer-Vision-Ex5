@@ -263,6 +263,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.extract_frames:
-        extract_content_frames(args.video, "content", args.n_frames)
+        extract_content_frames(args.video, "task2_nst_video/content", args.n_frames)
     else:
         run_pipeline(args)

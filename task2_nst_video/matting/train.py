@@ -170,12 +170,24 @@ def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # Dataset
-    img_dir   = os.path.join(args.data, "clip_img")
-    matte_dir = os.path.join(args.data, "matting")
+    # Find clip_img and matting dirs inside args.data
+    data_root = Path(args.data)
+    clip_dirs = list(data_root.rglob("clip_img"))
+    matte_dirs = list(data_root.rglob("matting"))
+    
+    if not clip_dirs or not matte_dirs:
+        print(f"[error] Could not find 'clip_img' or 'matting' inside {args.data}")
+        return
+        
+    img_dir   = str(clip_dirs[0])
+    matte_dir = str(matte_dirs[0])
 
     full_ds = AISegmentDataset(img_dir, matte_dir,
                                target_size=args.size, augment=True)
+    if len(full_ds) == 0:
+        print("[error] Dataset is empty. Cannot train matting model.")
+        return
+
     # ── Subsampling & Splitting ───────────────────────────
     # Requirement: 5,000 train, 500 val, 500 test (~6,000 total)
     train_n, val_n, test_n = 5000, 500, 500
