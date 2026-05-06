@@ -48,6 +48,52 @@ OUTPUT_DIR = Path("/kaggle/working/")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------------------------------------------------
+# Helpers for Task 2
+# ----------------------------------------------------------------------
+def plot_matting_curves(log_csv, out_path):
+    """Plots training/validation loss and IoU for the matting model."""
+    if not os.path.exists(log_csv):
+        print(f"  [warn] Matting log not found: {log_csv}")
+        return
+    epochs, tr_loss, va_loss, va_iou = [], [], [], []
+    with open(log_csv) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            epochs.append(int(row["epoch"]))
+            tr_loss.append(float(row["train_loss"]))
+            va_loss.append(float(row["val_loss"]))
+            va_iou.append(float(row["val_iou"]))
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    ax1.plot(epochs, tr_loss, label="Train Loss")
+    ax1.plot(epochs, va_loss, label="Val Loss")
+    ax1.set_title("Matting Training Loss")
+    ax1.set_xlabel("Epoch"); ax1.legend()
+    
+    ax2.plot(epochs, va_iou, label="Val IoU", color="tab:green")
+    ax2.set_title("Matting Validation IoU")
+    ax2.set_xlabel("Epoch"); ax2.legend()
+    
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+    print(f"Matting curves saved: {out_path}")
+
+def plot_nst_loss(loss_history, out_path):
+    """Plots the optimization loss curve for NST."""
+    plt.figure(figsize=(8, 4))
+    plt.plot(loss_history)
+    plt.title("NST Optimization Loss (log scale)")
+    plt.xlabel("Iteration")
+    plt.ylabel("Total Loss")
+    plt.yscale("log")
+    plt.grid(True, which="both", ls="-", alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+    print(f"NST loss curve saved: {out_path}")
+
+# ----------------------------------------------------------------------
 # Helpers for Task 1
 # ----------------------------------------------------------------------
 def plot_inference_examples(model, dataset, device, out_path, num_samples=5):
@@ -208,10 +254,13 @@ if not args.skip_task2:
         print("\n--- NST single transfer (sanity) ---")
         out_path = OUTPUT_DIR / "test_stylized.png"
         if args.quick:
-            run_nst(str(CONTENT), str(STYLE), str(out_path), beta=1e5, n_steps=100)
+            _, losses = run_nst(str(CONTENT), str(STYLE), str(out_path), beta=1e5, n_steps=100)
         else:
-            run_nst(str(CONTENT), str(STYLE), str(out_path), beta=1e5, n_steps=200)
+            _, losses = run_nst(str(CONTENT), str(STYLE), str(out_path), beta=1e5, n_steps=200)
         print(f"Saved stylized image: {out_path}")
+        
+        # Plot NST loss curve
+        plot_nst_loss(losses, str(OUTPUT_DIR / "nst_loss_curve.png"))
 
         # ---- 2.2 beta/alpha sweep ----
         print("\n--- Beta/Alpha sweep ---")
@@ -253,6 +302,9 @@ if not args.skip_task2:
                             "--data", "data/aisegment",
                             "--epochs", "30",
                             "--out", str(OUTPUT_DIR)], check=False)
+            # Plot training curves if log exists
+            plot_matting_curves(str(OUTPUT_DIR / "matting_log.csv"), 
+                                str(OUTPUT_DIR / "matting_curves.png"))
         else:
             print("  [skip] No matting weights and training script not found/quick mode.")
     else:
@@ -261,6 +313,31 @@ if not args.skip_task2:
         mat_model.load_state_dict(torch.load(MATTING_WEIGHTS, map_location=device))
         mat_model.eval()
         print("Matting model loaded.")
+        
+        # Plot curves if log exists in the same directory as weights
+        plot_matting_curves(str(Path(MATTING_WEIGHTS).parent / "matting_log.csv"), 
+                            str(OUTPUT_DIR / "matting_curves.png"))
+
+    # ---- 2.6 Sample NST Inference on multiple frames ----
+    if content_files and style_files:
+        print("\n--- NST inference on multiple samples ---")
+        samples = content_files[:min(5, len(content_files))]
+        fig, axes = plt.subplots(1, len(samples), figsize=(len(samples) * 4, 4))
+        if len(samples) == 1: axes = [axes]
+        
+        for i, cp in enumerate(samples):
+            out_p = OUTPUT_DIR / f"sample_stylized_{i}.png"
+            # Use reduced steps for fast inference visualization
+            run_nst(str(cp), str(STYLE), str(out_p), n_steps=100, verbose=False)
+            axes[i].imshow(Image.open(out_p))
+            axes[i].set_title(f"Frame {i}")
+            axes[i].axis("off")
+        
+        plt.suptitle(f"NST Inference Samples (Style: {STYLE.name})")
+        plt.tight_layout()
+        plt.savefig(OUTPUT_DIR / "nst_inference_samples.png")
+        plt.close()
+        print(f"NST inference samples saved: {OUTPUT_DIR}/nst_inference_samples.png")
 
     # ---- 2.6 Matting visualisation on video frames ----
     if mat_model is not None and content_files:
@@ -347,7 +424,9 @@ if not args.skip_task2:
                     ax.imshow(frame); ax.set_title(title); ax.axis("off")
                 plt.suptitle("Stylized Video Variants (frame 30)")
                 plt.tight_layout()
+                plt.savefig(OUTPUT_DIR / "video_variants_inference.png")
                 plt.show()
+                print(f"Video variant thumbnails saved: {OUTPUT_DIR}/video_variants_inference.png")
         else:
             print("video_pipeline.py not found – cannot run full pipeline.")
     else:

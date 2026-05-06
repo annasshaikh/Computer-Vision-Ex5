@@ -148,9 +148,9 @@ def run_nst(content_path: str, style_path: str,
             device: torch.device = None,
             init_tensor: torch.Tensor = None,
             style_layers: list[str] = None,
-            verbose: bool = True) -> torch.Tensor:
+            verbose: bool = True) -> tuple[torch.Tensor, list[float]]:
     """
-    Run NST and save result. Returns the generated tensor.
+    Run NST and save result. Returns (generated_tensor, loss_history).
 
     init_tensor: if provided, used as initialization (temporal consistency).
     """
@@ -178,6 +178,7 @@ def run_nst(content_path: str, style_path: str,
     optimizer = optim.LBFGS([gen], max_iter=20)
 
     step = [0]
+    loss_history = []
 
     def closure():
         optimizer.zero_grad()
@@ -207,6 +208,7 @@ def run_nst(content_path: str, style_path: str,
         loss = alpha * c_loss + beta * s_loss
         loss.backward()
 
+        loss_history.append(loss.item())
         step[0] += 1
         if verbose and step[0] % 50 == 0:
             print(f"    step {step[0]:4d}  total={loss.item():.2e}  "
@@ -231,7 +233,7 @@ def run_nst(content_path: str, style_path: str,
         if verbose:
             print(f"  Saved → {output_path}")
 
-    return gen.detach()
+    return gen.detach(), loss_history
 
 
 # ──────────────────────────────────────────────────────────────
