@@ -172,7 +172,7 @@ def run_pipeline(args):
         mattes_np.append(alpha_np)
 
         # ── NST ──────────────────────────────────────────────
-        stylized_tensor = run_nst(
+        stylized_tensor, _ = run_nst(
             content_path  = content_tmp,
             style_path    = args.style,
             output_path   = None,
