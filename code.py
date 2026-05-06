@@ -43,6 +43,10 @@ print(f"Using device: {device}")
 torch.manual_seed(42)
 np.random.seed(42)
 
+# Global output directory (e.g. for Kaggle)
+OUTPUT_DIR = Path("/kaggle/working/")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 # ----------------------------------------------------------------------
 # 1. Task 1 – CNN regression (Seeds)
 # ----------------------------------------------------------------------
@@ -94,13 +98,15 @@ if not args.skip_task1:
     # Reload best model A weights
     from task1_cnn import evaluate as ev_mod   # requires evaluate.py in task1_cnn
 
-    best_a_path = Path("task1_cnn/weights_regression/BaselineCNN_adam_standard_best.pth")
+    wt_dir = Path(cfg["logging"]["weights_dir"])
+    best_a_path = wt_dir / "BaselineCNN_adam_standard_best.pth"
     if best_a_path.exists():
         model_a = build_model(cfg, "model_a", n_out).to(device)
         model_a.load_state_dict(torch.load(best_a_path, map_location=device))
         y_true, y_pred = ev_mod.get_predictions(model_a, test_loader, device)
-        ev_mod.plot_regression_scatter(y_true, y_pred, "task1_cnn/cnn_outputs_reg/scatter_A.png")
-        print("Scatter plot saved: task1_cnn/cnn_outputs_reg/scatter_A.png")
+        scatter_path = OUTPUT_DIR / "scatter_A.png"
+        ev_mod.plot_regression_scatter(y_true, y_pred, str(scatter_path))
+        print(f"Scatter plot saved: {scatter_path}")
 
     # ---- 1.4 Build comparison table ----
     # Collect results from sweep and model B
@@ -122,7 +128,7 @@ if not args.skip_task1:
         df = pd.DataFrame(table_rows)
         print("\n--- Final Regression Comparison ---")
         print(df.to_string(index=False))
-        df.to_csv("task1_cnn/cnn_outputs_reg/comparison_table.csv", index=False)
+        df.to_csv(OUTPUT_DIR / "comparison_table.csv", index=False)
     except ImportError:
         print("\nMethod, MSE, MAE")
         for row in table_rows:
@@ -146,8 +152,6 @@ if not args.skip_task2:
     # Paths – adjust if needed
     CONTENT_DIR = Path("task2_nst_video/content")
     STYLE_DIR   = Path("task2_nst_video/style")
-    OUTPUT_DIR  = Path("task2_nst_video/outputs")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Example images (first content and first style)
     content_files = list(CONTENT_DIR.glob("*.jpg")) + list(CONTENT_DIR.glob("*.png"))
@@ -188,7 +192,12 @@ if not args.skip_task2:
                   f"and 3 style (found {len(style_files)}) images.")
 
     # ---- 2.5 Human Matting – load / train / visualise ----
-    MATTING_WEIGHTS = Path("task2_nst_video/matting/weights/matting_best.pth")
+    # Try to find weights in repo first, otherwise use OUTPUT_DIR
+    REPO_MATTING_WEIGHTS = Path("task2_nst_video/matting/weights/matting_best.pth")
+    if REPO_MATTING_WEIGHTS.exists():
+        MATTING_WEIGHTS = REPO_MATTING_WEIGHTS
+    else:
+        MATTING_WEIGHTS = OUTPUT_DIR / "matting_best.pth"
     mat_model = None
 
     # If weights not found and user wants quick test, we can train a very minimal matting model?
@@ -201,7 +210,7 @@ if not args.skip_task2:
             subprocess.run([sys.executable, str(train_script),
                             "--data", "data/aisegment",
                             "--epochs", "30",
-                            "--out", "task2_nst_video/matting/weights"], check=False)
+                            "--out", str(OUTPUT_DIR)], check=False)
         else:
             print("  [skip] No matting weights and training script not found/quick mode.")
     else:

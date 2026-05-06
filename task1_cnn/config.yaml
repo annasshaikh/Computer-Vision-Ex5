@@ -73,6 +73,6 @@ model_b:
 
 # Logging
 logging:
-  log_dir: "logs_regression"
-  weights_dir: "weights_regression"
-  outputs_dir: "cnn_outputs_reg"
+  log_dir: "/kaggle/working/logs_regression"
+  weights_dir: "/kaggle/working/weights_regression"
+  outputs_dir: "/kaggle/working/cnn_outputs_reg"
