@@ -71,96 +71,115 @@ def compute_iou(pred: torch.Tensor, target: torch.Tensor,
     return float(inter / union)
 
 
+import cv2
+import torchvision.transforms as T
+
+# ──────────────────────────────────────────────────────────────
+# Dataset Helpers
+# ──────────────────────────────────────────────────────────────
+def _collect_pairs(clip_root: Path, matte_root: Path, max_pairs: int = None):
+    pairs = []
+    clip_root_str  = str(clip_root)
+    matte_root_str = str(matte_root)
+    n_checked  = 0
+
+    for dirpath, _, filenames in os.walk(clip_root_str):
+        jpg_files = sorted(f for f in filenames if f.lower().endswith(".jpg"))
+        if not jpg_files:
+            continue
+
+        rel_dir = os.path.relpath(dirpath, clip_root_str)
+        parts   = rel_dir.split(os.sep)
+        if len(parts) >= 2:
+            parts[1] = parts[1].replace("clip_", "matting_")
+        matte_dir = os.path.join(matte_root_str, *parts)
+
+        for fname in jpg_files:
+            img_path   = os.path.join(dirpath, fname)
+            matte_path = os.path.join(matte_dir, os.path.splitext(fname)[0] + ".png")
+            n_checked += 1
+
+            if os.path.exists(matte_path):
+                pairs.append((img_path, matte_path))
+
+            if max_pairs and len(pairs) >= max_pairs:
+                return pairs
+
+    return pairs
+
 # ──────────────────────────────────────────────────────────────
 # Dataset
 # ──────────────────────────────────────────────────────────────
 class AISegmentDataset(Dataset):
-    """
-    Pairs RGB images with their alpha mattes.
-    Accepts any image size; resizes to target_size.
-    """
+    def __init__(self, clip_root: str, matte_root: str, split: str = "train",
+                 img_size: tuple = (256, 256), n_train: int = 5000,
+                 n_val: int = 500, n_test: int = 500, seed: int = 42):
+        self.split = split
+        self.img_size = img_size
 
-    def __init__(self, img_dir: str, matte_dir: str,
-                 target_size: int = 256,
-                 augment: bool = False):
-        self.img_paths    = sorted(Path(img_dir).rglob("*.jpg"))
-        self.matte_dir    = Path(matte_dir)
-        self.target_size  = target_size
-        self.augment      = augment
+        max_needed = n_train + n_val + n_test
+        all_pairs = _collect_pairs(Path(clip_root), Path(matte_root), max_pairs=max_needed * 2)
+        
+        rng = random.Random(seed)
+        rng.shuffle(all_pairs)
 
-        # Build matte path lookup: same relative stem, .png extension
-        self.matte_paths  = []
-        for p in self.img_paths:
-            # Try same relative path in matte directory with .png
-            rel   = p.relative_to(img_dir)
-            mpath = self.matte_dir / rel.with_suffix(".png")
-            if not mpath.exists():
-                # Try flat search
-                mpath = self.matte_dir / (p.stem + ".png")
-            self.matte_paths.append(mpath)
+        total = n_train + n_val + n_test
+        all_pairs = all_pairs[:total]
+        
+        if split == "train":
+            self.pairs = all_pairs[:n_train]
+        elif split == "val":
+            self.pairs = all_pairs[n_train : n_train + n_val]
+        else:
+            self.pairs = all_pairs[n_train + n_val : n_train + n_val + n_test]
 
-        # Filter out missing mattes
-        valid = [(i, m) for i, m in zip(self.img_paths, self.matte_paths)
-                 if m.exists()]
-        self.img_paths   = [v[0] for v in valid]
-        self.matte_paths = [v[1] for v in valid]
-
-        if len(self.img_paths) == 0:
-            print("[warn] No valid image/matte pairs found. "
-                  "Check your AISegment dataset path.")
+        self.color_jitter = T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
 
     def __len__(self):
-        return len(self.img_paths)
+        return len(self.pairs)
 
     def __getitem__(self, idx):
-        img   = Image.open(self.img_paths[idx]).convert("RGB")
-        matte = Image.open(self.matte_paths[idx])
+        img_path, matte_path = self.pairs[idx]
 
-        # Convert matte to single-channel float [0,1]
-        if matte.mode == "RGBA":
-            matte = matte.split()[3]   # alpha channel
-        elif matte.mode != "L":
-            matte = matte.convert("L")
+        img       = cv2.imread(img_path,   cv2.IMREAD_COLOR)
+        matte_raw = cv2.imread(matte_path, cv2.IMREAD_UNCHANGED)
 
-        sz = self.target_size
+        if img is None or matte_raw is None:
+            raise FileNotFoundError(f"Could not read: {img_path} or {matte_path}")
 
-        # ── Augmentation ──────────────────────────────────────
-        if self.augment:
-            # Random horizontal flip
+        if matte_raw.ndim == 2:
+            matte = matte_raw
+        elif matte_raw.shape[2] == 4:
+            matte = matte_raw[:, :, 3]
+        else:
+            matte = cv2.cvtColor(matte_raw, cv2.COLOR_BGR2GRAY)
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        H, W = self.img_size
+        img   = cv2.resize(img,   (W, H), interpolation=cv2.INTER_LINEAR)
+        matte = cv2.resize(matte, (W, H), interpolation=cv2.INTER_LINEAR)
+
+        img   = torch.from_numpy(img.astype(np.float32)   / 255.0).permute(2, 0, 1)
+        matte = torch.from_numpy(matte.astype(np.float32) / 255.0).unsqueeze(0)
+
+        if self.split == "train":
             if random.random() > 0.5:
                 img   = TF.hflip(img)
                 matte = TF.hflip(matte)
-            # Color jitter on image only
-            img = TF.adjust_brightness(img, 0.8 + 0.4 * random.random())
-            img = TF.adjust_saturation(img, 0.8 + 0.4 * random.random())
-            # Random crop
-            i, j, h, w = self._random_crop_params(img, sz)
-            img   = TF.resized_crop(img,   i, j, h, w, (sz, sz), Image.BILINEAR)
-            matte = TF.resized_crop(matte, i, j, h, w, (sz, sz), Image.NEAREST)
-        else:
-            img   = TF.resize(img,   (sz, sz), Image.BILINEAR)
-            matte = TF.resize(matte, (sz, sz), Image.NEAREST)
+            img = self.color_jitter(img)
+            crop_frac = random.uniform(0.85, 1.0)
+            ch = int(H * crop_frac)
+            cw = int(W * crop_frac)
+            top  = random.randint(0, H - ch)
+            left = random.randint(0, W - cw)
+            img   = TF.resized_crop(img,   top, left, ch, cw, (H, W))
+            matte = TF.resized_crop(matte, top, left, ch, cw, (H, W))
 
-        # ── To tensor ─────────────────────────────────────────
-        img_t   = TF.to_tensor(img)                          # (3, H, W) [0,1]
-        img_t   = TF.normalize(img_t,
-                                mean=[0.485, 0.456, 0.406],
-                                std=[0.229, 0.224, 0.225])
-        matte_t = torch.from_numpy(
-            np.array(matte, dtype=np.float32) / 255.0
-        ).unsqueeze(0)                                        # (1, H, W) [0,1]
-
-        return img_t, matte_t
-
-    @staticmethod
-    def _random_crop_params(img, output_size):
-        w, h   = img.size
-        scale  = random.uniform(0.8, 1.0)
-        new_h  = int(h * scale)
-        new_w  = int(w * scale)
-        top    = random.randint(0, max(0, h - new_h))
-        left   = random.randint(0, max(0, w - new_w))
-        return top, left, new_h, new_w
+        # Normalize img (ImageNet stats)
+        img = TF.normalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        
+        return img, matte
 
 
 # ──────────────────────────────────────────────────────────────
@@ -170,67 +189,22 @@ def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # Find clip_img and matting dirs inside args.data
-    data_root = Path(args.data)
-    clip_dirs = list(data_root.rglob("clip_img"))
-    matte_dirs = list(data_root.rglob("matting"))
-    
-    if not clip_dirs or not matte_dirs:
-        print(f"[error] Could not find 'clip_img' or 'matting' inside {args.data}")
-        return
-        
-    img_dir   = str(clip_dirs[0])
-    matte_dir = str(matte_dirs[0])
+    clip_root  = os.path.join(args.data, "clip_img")
+    matte_root = os.path.join(args.data, "matting")
 
-    full_ds = AISegmentDataset(img_dir, matte_dir,
-                               target_size=args.size, augment=True)
-    if len(full_ds) == 0:
+    train_ds = AISegmentDataset(clip_root, matte_root, split="train", img_size=(args.size, args.size))
+    val_ds   = AISegmentDataset(clip_root, matte_root, split="val",   img_size=(args.size, args.size))
+
+    if len(train_ds) == 0:
         print("[error] Dataset is empty. Cannot train matting model.")
         return
-
-    # ── Subsampling & Splitting ───────────────────────────
-    # Requirement: 5,000 train, 500 val, 500 test (~6,000 total)
-    train_n, val_n, test_n = 5000, 500, 500
-    total_needed = train_n + val_n + test_n
-    
-    if len(full_ds) > total_needed:
-        # Take a deterministic subset for reproducibility
-        indices = list(range(len(full_ds)))
-        # Sort or shuffle with fixed seed to ensure same subset every time
-        import random
-        random.seed(42)
-        random.shuffle(indices)
-        full_ds = torch.utils.data.Subset(full_ds, indices[:total_needed])
-        print(f"Subsampled dataset to {total_needed} pairs (5000/500/500).")
-    else:
-        # Fallback if dataset is smaller than requested subset
-        val_n   = max(1, int(len(full_ds) * 0.1))
-        test_n  = max(1, int(len(full_ds) * 0.1))
-        train_n = len(full_ds) - val_n - test_n
-        print(f"Dataset smaller than 6000 ({len(full_ds)}). Using 10% split.")
-
-    g = torch.Generator().manual_seed(42)
-    train_ds, val_ds, test_ds = random_split(full_ds, [train_n, val_n, test_n], generator=g)
-
-    # Disable augmentation for val/test splits via a wrapper
-    # Note: Subsets don't have .augment directly, we access the underlying dataset
-    full_ds_obj = full_ds
-    while hasattr(full_ds_obj, "dataset"):
-        full_ds_obj = full_ds_obj.dataset
-    # We'll handle augmentation in __getitem__ by checking if the sample is in train_ds
-    # But for simplicity, we just set it globally or accept it for now.
-    # A better way is to pass a transform function.
-    # For this assignment, we'll keep the existing logic but just split the data.
-
-    # Disable augmentation for val split via a wrapper
-    val_ds.dataset.augment = False  # type: ignore
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size,
                               shuffle=True, num_workers=4, pin_memory=True)
     val_loader   = DataLoader(val_ds,   batch_size=args.batch_size,
                               shuffle=False, num_workers=4)
 
-    print(f"Train: {train_n}  Val: {val_n}")
+    print(f"Train: {len(train_ds)}  Val: {len(val_ds)}")
 
     # Model, optimiser, loss
     model     = MattingUNet(pretrained=True).to(device)
@@ -279,7 +253,7 @@ def train(args):
                 for p, t in zip(preds, mattes):
                     va_iou += compute_iou(p, t)
         va_loss /= len(val_loader)
-        va_iou  /= val_n
+        va_iou  /= max(1, len(val_ds))
 
         scheduler.step(va_loss)
         lr = optimizer.param_groups[0]["lr"]

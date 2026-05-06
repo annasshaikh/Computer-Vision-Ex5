@@ -27,6 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torchvision
+from PIL import Image
 
 # ----------------------------------------------------------------------
 # 0. argument parsing & device setup
