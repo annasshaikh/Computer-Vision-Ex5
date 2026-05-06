@@ -309,7 +309,7 @@ def build_grid(content_dir, style_dir, out_dir):
     content_paths = sorted(Path(content_dir).glob("*.jpg"))[:5]
     style_paths   = sorted(Path(style_dir).glob("*"))
     style_paths   = [p for p in style_paths
-                     if p.suffix.lower() in (".jpg", ".jpeg", ".png")][:3]
+                     if p.suffix.lower() in (".jpg", ".jpeg", ".png")]
 
     if not content_paths:
         print(f"[warn] No content images found in {content_dir}")

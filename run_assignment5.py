@@ -196,6 +196,19 @@ if not args.skip_task1:
         plot_inference_examples(model_a, test_loader.dataset, device, 
                                 str(OUTPUT_DIR / "test_inference_samples.png"), num_samples=5)
 
+        # Feature-map visualization for a Seed image (for Task 2 requirement)
+        print("\n--- Feature-map visualization (Seed Image) ---")
+        # Try to find task2's visualization function
+        try:
+            from task2_nst_video.nst import visualise_feature_maps
+            seed_img_path = Path("seeds/1.jpg")
+            if seed_img_path.exists():
+                out_feat_seed = OUTPUT_DIR / "feature_maps_seed.png"
+                visualise_feature_maps(str(seed_img_path), str(out_feat_seed))
+                print(f"Seed feature maps saved: {out_feat_seed}")
+        except ImportError:
+            print("  [skip] task2_nst_video.nst not imported yet.")
+
     # ---- 1.4 Build comparison table ----
     # Collect results from sweep and model B
     all_results = {}
@@ -240,10 +253,24 @@ if not args.skip_task2:
     # Paths – adjust if needed
     CONTENT_DIR = Path("task2_nst_video/content")
     STYLE_DIR   = Path("task2_nst_video/style")
+    
+    # Kaggle dataset paths
+    KAGGLE_AIS_DATA = Path("/kaggle/input/datasets/laurentmih/aisegmentcom-matting-human-datasets/")
+    KAGGLE_VIDEO    = Path("/kaggle/input/datasets/muhammadannasshaikh/input4cv/input.mp4")
 
-    # Example images (first content and first style)
+    # Example images (all styles and available content)
     content_files = list(CONTENT_DIR.glob("*.jpg")) + list(CONTENT_DIR.glob("*.png"))
-    style_files   = [p for p in STYLE_DIR.glob("*") if p.suffix.lower() in (".jpg",".jpeg",".png")]
+    
+    # If content frames are missing, try to extract them from the video
+    if not content_files and KAGGLE_VIDEO.exists():
+        print(f"\n--- Extracting frames from {KAGGLE_VIDEO} ---")
+        pipeline_script = Path("task2_nst_video/video_pipeline.py")
+        if pipeline_script.exists():
+            subprocess.run([sys.executable, str(pipeline_script), 
+                            "--extract_frames", "--video", str(KAGGLE_VIDEO)], check=False)
+            content_files = list(CONTENT_DIR.glob("*.jpg")) + list(CONTENT_DIR.glob("*.png"))
+
+    style_files = [p for p in STYLE_DIR.glob("*") if p.suffix.lower() in (".jpg",".jpeg",".png")]
     if not content_files or not style_files:
         print("WARNING: No content or style images found. Skipping NST parts.")
     else:
@@ -273,14 +300,13 @@ if not args.skip_task2:
         layer_ablation(str(CONTENT), str(STYLE), out_dir=str(OUTPUT_DIR))
         print(f"Layer ablation plot: {OUTPUT_DIR}/layer_ablation.png")
 
-        # ---- 2.4 5x3 NST grid ----
-        if len(content_files) >= 5 and len(style_files) >= 3:
-            print("\n--- 5x3 NST grid ---")
+        # ---- 2.4 NST Grid (All Styles x First 5 Content) ----
+        if len(content_files) >= 1 and len(style_files) >= 1:
+            print(f"\n--- NST Grid ({len(content_files[:5])} content x {len(style_files)} style) ---")
             build_grid(str(CONTENT_DIR), str(STYLE_DIR), str(OUTPUT_DIR))
             print(f"Grid saved: {OUTPUT_DIR}/grid.png")
         else:
-            print(f"Skipping 5x3 grid: need 5 content (found {len(content_files)}) "
-                  f"and 3 style (found {len(style_files)}) images.")
+            print(f"Skipping grid: need at least 1 content and 1 style image.")
 
     # ---- 2.5 Human Matting – load / train / visualise ----
     # Try to find weights in repo first, otherwise use OUTPUT_DIR
@@ -298,8 +324,9 @@ if not args.skip_task2:
         # Call train.py if it exists
         train_script = Path("task2_nst_video/matting/train.py")
         if train_script.exists() and not args.quick:
+            ais_path = KAGGLE_AIS_DATA if KAGGLE_AIS_DATA.exists() else Path("data/aisegment")
             subprocess.run([sys.executable, str(train_script),
-                            "--data", "data/aisegment",
+                            "--data", str(ais_path),
                             "--epochs", "30",
                             "--out", str(OUTPUT_DIR)], check=False)
             # Plot training curves if log exists
@@ -378,7 +405,7 @@ if not args.skip_task2:
         print(f"Feature maps saved: {out_feat}")
 
     # ---- 2.8 Full video pipeline (if video file and matting weights exist) ----
-    VIDEO_PATH = Path("task2_nst_video/input_video.mp4")
+    VIDEO_PATH = KAGGLE_VIDEO if KAGGLE_VIDEO.exists() else Path("task2_nst_video/input_video.mp4")
     if VIDEO_PATH.exists() and MATTING_WEIGHTS.exists():
         print("\n--- Running full video stylization pipeline ---")
         pipeline_script = Path("task2_nst_video/video_pipeline.py")
@@ -431,6 +458,16 @@ if not args.skip_task2:
             print("video_pipeline.py not found – cannot run full pipeline.")
     else:
         print("\nSkipping full video pipeline: need input_video.mp4 and trained matting weights.")
+
+    # ---- 2.9 Branded Poster (1024x1024 Stylized Still) ----
+    if content_files and style_files:
+        print("\n--- Generating 1024x1024 Branded Poster ---")
+        poster_path = OUTPUT_DIR / "branded_poster.png"
+        # Cherry-pick frame 0 or similar
+        run_nst(str(CONTENT), str(STYLE), str(poster_path), 
+                n_steps=200 if not args.quick else 50, 
+                img_size=1024, verbose=True)
+        print(f"Branded poster saved: {poster_path}")
 
     print("Task 2 completed.")
 
