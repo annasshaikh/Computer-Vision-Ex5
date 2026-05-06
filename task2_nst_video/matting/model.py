@@ -71,7 +71,7 @@ class MattingUNet(nn.Module):
         self.enc2 = feat[2:4]         # → 64,  24
         self.enc3 = feat[4:7]         # → 32,  32
         self.enc4 = feat[7:14]        # → 16,  96
-        self.enc5 = feat[14:]         # →  8, 320 (bottleneck)
+        self.enc5 = feat[14:-1]       # →  8, 320 (bottleneck before 1280 expansion)
         self.enc2 = nn.Sequential(*self.enc2)
         self.enc3 = nn.Sequential(*self.enc3)
         self.enc4 = nn.Sequential(*self.enc4)
