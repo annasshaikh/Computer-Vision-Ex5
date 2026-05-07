@@ -94,12 +94,12 @@ def tensor_to_rgb_np(t: torch.Tensor) -> np.ndarray:
 
 def save_matting_overlay(frames_rgb, mattes, out_path, n=5):
     """Save n-frame matting visualisation: original | matte | cutout."""
+    import matplotlib.pyplot as plt  # local import to keep top clean
     n = min(n, len(frames_rgb))
     fig, axes = plt.subplots(n, 3, figsize=(9, n * 3))
     if n == 1:
         axes = axes[np.newaxis, :]
 
-    import matplotlib.pyplot as plt  # local import to keep top clean
     for i in range(n):
         frame  = frames_rgb[i]
         alpha  = (mattes[i] * 255).astype(np.uint8)
